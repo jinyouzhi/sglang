@@ -533,7 +533,7 @@ def match_llama2_chat(model_path: str):
 
 @register_chat_template_matching_function
 def match_mistral(model_path: str):
-    if re.search(r"pixtral|(mistral|mixtral).*instruct", model_path, re.IGNORECASE):
+    if re.search(r"pixtral|devstral(mistral|mixtral).*instruct", model_path, re.IGNORECASE):
         return "mistral"
 
 
