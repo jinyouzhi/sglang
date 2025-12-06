@@ -1,7 +1,14 @@
 # This file is copied from https://github.com/deepseek-ai/EPLB/blob/main/eplb.py since that one is not a pypi package
+import time
 from typing import Tuple
 
 import torch
+
+time_elcapsed = {
+    "balanced_packing": [0, 0.0],
+    "loop_exection": [0, 0.0],
+    "rebalance_experts_hierarchical": [0, 0.0],
+}
 
 
 def balanced_packing(
@@ -19,6 +26,7 @@ def balanced_packing(
         pack_index: [X, n], the pack index of each item
         rank_in_pack: [X, n], the rank of the item in the pack
     """
+    s1 = time.time()
     num_layers, num_groups = weight.shape
     assert num_groups % num_packs == 0
     groups_per_pack = num_groups // num_packs
@@ -33,6 +41,7 @@ def balanced_packing(
     indices = weight.float().sort(-1, descending=True).indices.cpu()
     pack_index = torch.full_like(weight, fill_value=-1, dtype=torch.int64, device="cpu")
     rank_in_pack = torch.full_like(pack_index, fill_value=-1)
+    s2 = time.time()
     for i in range(num_layers):
         pack_weights = [0] * num_packs
         pack_items = [0] * num_packs
@@ -46,6 +55,10 @@ def balanced_packing(
             rank_in_pack[i, group] = pack_items[pack]
             pack_weights[pack] += weight[i, group]
             pack_items[pack] += 1
+    time_elcapsed["balanced_packing"][1] += time.time() - s1
+    time_elcapsed["loop_exection"][1] += time.time() - s2
+    time_elcapsed["balanced_packing"][0] += 1
+    time_elcapsed["loop_exection"][0] += 1
     return pack_index, rank_in_pack
 
 
@@ -100,6 +113,7 @@ def rebalance_experts_hierarchical(
         logical_to_physical_map: [num_moe_layers, num_logical_experts, X]
         logical_count: [num_moe_layers, num_logical_experts]
     """
+    s3 = time.time()
     num_layers, num_logical_experts = weight.shape
     assert num_logical_experts % num_groups == 0
     group_size = num_logical_experts // num_groups
@@ -162,6 +176,18 @@ def rebalance_experts_hierarchical(
     pphy2log = mlog2log.gather(-1, pphy2mlog)
     pphyrank = phyrank.gather(-1, pphy2phy).view(num_layers, -1)
     logcnt = mlogcnt.view(num_layers, -1).gather(-1, log2mlog)
+    time_elcapsed["rebalance_experts_hierarchical"][1] += time.time() - s3
+    time_elcapsed["rebalance_experts_hierarchical"][0] += 1
+    if time_elcapsed["rebalance_experts_hierarchical"][0] % 100 == 0:
+        print(
+            f"[EPLB DeepSeek] Time elapsed for balanced_packing: {time_elcapsed['balanced_packing'][1]:.3f}s over {time_elcapsed['balanced_packing'][0]} calls"
+        )
+        print(
+            f"[EPLB DeepSeek] Time elapsed for loop_exection: {time_elcapsed['loop_exection'][1]:.3f}s over {time_elcapsed['loop_exection'][0]} calls"
+        )
+        print(
+            f"[EPLB DeepSeek] Time elapsed for rebalance_experts_hierarchical: {time_elcapsed['rebalance_experts_hierarchical'][1]:.3f}s over {time_elcapsed['rebalance_experts_hierarchical'][0]} calls"
+        )
     return pphy2log, pphyrank, logcnt
 
 
